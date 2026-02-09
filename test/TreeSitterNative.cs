@@ -17,7 +17,7 @@ public struct TSNode
 public class TreeSitterNative
 {
     private const string TreeSitterDll = "tree_sitter.dll";
-    private const string YourLanguageDll = "tree-sitter-test.dll";
+    private const string YourLanguageDll = "tree_sitter_pascal.dll";
 
     // Основные функции парсера
     [DllImport(TreeSitterDll, CallingConvention = CallingConvention.Cdecl)]
@@ -67,5 +67,5 @@ public class TreeSitterNative
 
     // Функция для загрузки языка
     [DllImport(YourLanguageDll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr tree_sitter_calc();
+    public static extern IntPtr tree_sitter_pascal();
 }

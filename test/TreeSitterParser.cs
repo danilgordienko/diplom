@@ -11,23 +11,34 @@ public class TreeSitterParser : IDisposable
 
     public TreeSitterParser()
     {
+        Console.WriteLine("Creating parser...");
         _parser = TreeSitterNative.csharp_ts_parser_new();
+        Console.WriteLine($"Parser pointer: {_parser}");
+
         if (_parser == IntPtr.Zero)
         {
             throw new InvalidOperationException("Failed to create parser");
         }
 
-        IntPtr ts_language = TreeSitterNative.tree_sitter_calc();
+        Console.WriteLine("Loading Pascal language...");
+        IntPtr ts_language = TreeSitterNative.tree_sitter_pascal();
+        Console.WriteLine($"Language pointer: {ts_language}");
+
         if (ts_language == IntPtr.Zero)
         {
             throw new InvalidOperationException("Failed to load language");
         }
 
+        Console.WriteLine("Setting language...");
         bool result = TreeSitterNative.csharp_ts_parser_set_language(_parser, ts_language);
+        Console.WriteLine($"Set language result: {result}");
+
         if (!result)
         {
             throw new InvalidOperationException("Failed to set language for parser");
         }
+
+        Console.WriteLine("Parser initialized successfully");
     }
 
     public void Parse(string sourceCode)
@@ -119,6 +130,15 @@ public class TreeSitterParser : IDisposable
     {
         if (depth > maxDepth)
             return;
+
+        if (node.id == IntPtr.Zero)
+        {
+            Console.WriteLine($"{prefix}(invalid node)");
+            return;
+        }
+
+        Console.WriteLine($"Visiting: {GetNodeType(node)}");
+
 
         string nodeType = GetNodeType(node);
         string nodeText = GetNodeText(node, sourceCode);
