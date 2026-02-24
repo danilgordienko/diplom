@@ -1,4 +1,0 @@
-=== csharp_ts_parser_set_language called ===
-parser = 0x21d805192e0
-language = 0x7fff559d4060
-ts_parser_set_language returned: true
