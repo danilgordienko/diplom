@@ -8,7 +8,6 @@
         {
             Console.WriteLine("Parser created successfully");
 
-            // Попробуйте самый простой код
             string code = "program Test; begin end.";
 
             Console.WriteLine($"Parsing code: {code}");
@@ -23,7 +22,6 @@
                 Console.WriteLine($"Root node type: {parser.GetNodeType(rootNode)}");
                 Console.WriteLine($"Child count: {parser.GetChildCount(rootNode)}");
 
-                // Попробуйте вывести дерево с ограничением глубины
                 parser.PrintTree(code, maxDepth: 3);
             }
             catch (Exception ex)
