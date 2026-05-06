@@ -4,5 +4,3 @@ obj/
 *.user
 *.suo
 logs
-samples
-pascal-lsp-extension

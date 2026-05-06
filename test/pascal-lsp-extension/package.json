@@ -1,0 +1,52 @@
+{
+  "name": "pascal-lsp",
+  "displayName": "Pascal Language Server",
+  "description": "Go to Definition и Find References для Pascal/PascalABC.NET",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [ "Programming Languages" ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "pascal",
+        "aliases": [ "Pascal", "PascalABC" ],
+        "extensions": [ ".pas", ".pp", ".inc" ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "Pascal LSP",
+      "properties": {
+        "pascal-lsp.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Полный путь к test.exe. Пример: C:\\projects\\test\\bin\\Debug\\net8.0\\test.exe"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "pascal-lsp.showOutput",
+        "title": "Pascal LSP: Show Output"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "compile": "tsc -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}
