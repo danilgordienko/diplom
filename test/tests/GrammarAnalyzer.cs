@@ -230,6 +230,89 @@ public class GrammarAnalyzer
 
     // ── Обход дерева ──────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Выводит полное AST дерево файла с отступами.
+    /// ERROR-узлы помечены «*** ERROR ***», MISSING — «*** MISSING ***».
+    /// Показывает только именованные узлы (type != анонимный).
+    /// Для листьев показывает текст.
+    /// </summary>
+    public void DumpTree(string filePath)
+    {
+        if (!File.Exists(filePath))
+        {
+            Console.Error.WriteLine($"Файл не найден: {filePath}");
+            return;
+        }
+
+        string src;
+        try { src = Decode(File.ReadAllBytes(filePath)); }
+        catch { Console.Error.WriteLine("Не удалось прочитать файл"); return; }
+
+        if (src.Length == 0) { Console.WriteLine("Пустой файл."); return; }
+
+        _parser.Parse(src);
+        var root = _parser.GetRootNode();
+        DumpNode(root, src, 0);
+    }
+
+    private void DumpNode(TSNode node, string src, int depth)
+    {
+        if (node.id == IntPtr.Zero) return;
+
+        string type = _parser.GetNodeType(node);
+        uint childCount = _parser.GetChildCount(node);
+        string indent = new string(' ', depth * 2);
+
+        uint startByte = TreeSitterNative.csharp_ts_node_start_byte(node);
+        uint endByte = TreeSitterNative.csharp_ts_node_end_byte(node);
+        int startLine = GetLine(src, (int)startByte);
+
+        if (type == "ERROR")
+        {
+            string errText = _parser.GetNodeText(node, src)
+                .Replace("\r", "").Replace("\n", "↵");
+            if (errText.Length > 80) errText = errText[..80] + "…";
+            Console.WriteLine($"{indent}*** ERROR *** L{startLine} «{errText}»");
+            return;
+        }
+
+        if (type == "MISSING")
+        {
+            Console.WriteLine($"{indent}*** MISSING {_parser.GetNodeType(node)} *** L{startLine}");
+            return;
+        }
+
+        bool isNamed = _parser.IsNamedNode(node);
+        if (!isNamed && childCount == 0)
+            return; // пропускаем анонимные листья (скобки, ключевые слова)
+
+        if (isNamed && childCount == 0)
+        {
+            // Лист — показываем текст
+            string text = _parser.GetNodeText(node, src)
+                .Replace("\r", "").Replace("\n", "↵");
+            if (text.Length > 60) text = text[..60] + "…";
+            Console.WriteLine($"{indent}{type} L{startLine} = «{text}»");
+            return;
+        }
+
+        if (isNamed)
+            Console.WriteLine($"{indent}{type} L{startLine}");
+
+        for (uint i = 0; i < childCount; i++)
+            DumpNode(_parser.GetChild(node, i), src, isNamed ? depth + 1 : depth);
+    }
+
+    private static int GetLine(string src, int byteOffset)
+    {
+        // Приблизительно — считаем символы = байты (для ASCII/UTF8)
+        int pos = Math.Min(byteOffset, src.Length);
+        int line = 1;
+        for (int i = 0; i < pos; i++)
+            if (src[i] == '\n') line++;
+        return line;
+    }
+
     private void Walk(TSNode node, string src, string? parentType,
                       List<(string parent, string text, int nodes)> errs,
                       ref int total)

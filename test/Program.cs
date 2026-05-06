@@ -34,6 +34,14 @@ static class Program
                         break;
                     }
 
+                case "--tree":
+                    {
+                        string filePath = args.Length > 1 ? args[1] : args[^1];
+                        var grammarAnalyzer = new GrammarAnalyzer(parser);
+                        grammarAnalyzer.DumpTree(filePath);
+                        break;
+                    }
+
                 case "--find":
                     {
                         // program.exe --find COUNT C:\MyProject

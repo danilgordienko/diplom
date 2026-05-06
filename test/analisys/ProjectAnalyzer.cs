@@ -10,7 +10,7 @@ using System.Text;
 /// Алгоритм:
 ///   1. Собираем все .pas файлы в папке (рекурсивно).
 ///   2. Каждый файл парсим и запускаем SymbolCollector + ReferenceCollector.
-///   3. Ищем объявление символа с заданным именем во всех файлах.
+///   3. Собираем ВСЕ объявления символа с заданным именем (во всех файлах).
 ///   4. Собираем все вхождения из всех файлов.
 ///   5. Выводим результат в консоль.
 /// </summary>
@@ -27,23 +27,8 @@ public class ProjectAnalyzer
 
     public void FindSymbol(string symbolName, string projectPath)
     {
-        // Определяем что передали — файл или папку
-        List<string> files;
-        if (File.Exists(projectPath) && projectPath.EndsWith(".pas", StringComparison.OrdinalIgnoreCase))
-        {
-            files = new List<string> { projectPath };
-        }
-        else if (Directory.Exists(projectPath))
-        {
-            files = Directory.GetFiles(projectPath, "*.pas", SearchOption.AllDirectories)
-                             .OrderBy(f => f)
-                             .ToList();
-        }
-        else
-        {
-            Console.Error.WriteLine($"Не найден файл или папка: {projectPath}");
-            return;
-        }
+        var files = CollectFiles(projectPath);
+        if (files == null) return;
 
         if (files.Count == 0)
         {
@@ -55,18 +40,16 @@ public class ProjectAnalyzer
         Console.WriteLine($"    Проект: {projectPath}");
         Console.WriteLine($"    Файлов: {files.Count}");
 
-        // Результаты со всех файлов
-        DefinitionResult? definition = null;
-        string? definitionFile = null;
+        // Все объявления — теперь список, а не одно
+        var allDefinitions = new List<(DefinitionResult def, string filePath)>();
 
-        // Список вхождений: (короткое имя файла, список Reference)
-        var allRefs = new List<(string fileName, List<Reference> refs)>();
+        // Вхождения: (путь к файлу, список Reference)
+        var allRefs = new List<(string filePath, List<Reference> refs)>();
 
         int done = 0;
         foreach (var filePath in files)
         {
             done++;
-            // Показываем прогресс только если файлов много
             if (files.Count > 5)
                 Console.Write($"\r    Анализ [{done}/{files.Count}] {Path.GetFileName(filePath),-40}");
 
@@ -75,7 +58,6 @@ public class ProjectAnalyzer
             catch { continue; }
             if (source.Length == 0) continue;
 
-            // Парсим и собираем символы
             AnalysisResult result;
             try
             {
@@ -84,63 +66,67 @@ public class ProjectAnalyzer
             }
             catch { continue; }
 
-            // Ищем объявление в этом файле (берём первое найденное)
-            if (definition == null)
-            {
-                var def = SymbolAnalyzer.FindDefinitionByName(result, symbolName);
-                if (def != null)
-                {
-                    definition = def;
-                    definitionFile = filePath;
-                }
-            }
+            // Собираем ВСЕ объявления из этого файла
+            var defs = SymbolAnalyzer.FindDefinitionsByName(result, symbolName);
+            foreach (var def in defs)
+                allDefinitions.Add((def, filePath));
 
             // Собираем вхождения из этого файла
             var refs = SymbolAnalyzer.FindReferencesByName(result, symbolName);
             if (refs.References.Count > 0)
-            {
                 allRefs.Add((filePath, refs.References.ToList()));
-            }
         }
 
         if (files.Count > 5)
-            Console.WriteLine(); // сброс строки прогресса
+            Console.WriteLine();
 
         Console.WriteLine();
 
-        // ── Вывод результатов ────────────────────────────────────────────────
-
-        PrintDefinition(definition, definitionFile);
+        PrintDefinitions(allDefinitions, projectPath);
         Console.WriteLine();
         PrintAllReferences(symbolName, allRefs, projectPath);
     }
 
-    // ── Вывод объявления ─────────────────────────────────────────────────────
+    // ── Вывод объявлений ─────────────────────────────────────────────────────
 
-    private static void PrintDefinition(DefinitionResult? def, string? filePath)
+    private static void PrintDefinitions(
+        List<(DefinitionResult def, string filePath)> definitions,
+        string projectPath)
     {
-        Console.WriteLine("  ┌─ Объявление");
-        if (def == null || filePath == null)
+        Console.WriteLine($"  ┌─ Объявления ({definitions.Count})");
+
+        if (definitions.Count == 0)
         {
             Console.WriteLine("  │  (не найдено)");
             Console.WriteLine("  └─");
             return;
         }
 
-        string shortName = Path.GetFileName(filePath);
-        Console.WriteLine($"  │  Файл:    {shortName}");
-        Console.WriteLine($"  │  Строка:  {def.Line}, столбец {def.Column}");
-        Console.WriteLine($"  │  Вид:     {def.Symbol.Kind}");
-        if (def.Symbol.TypeName != null)
-            Console.WriteLine($"  │  Тип:     {def.Symbol.TypeName}");
-        Console.WriteLine($"  │  Код:     {def.Preview}");
-        Console.WriteLine("  └─");
+        for (int i = 0; i < definitions.Count; i++)
+        {
+            var (def, filePath) = definitions[i];
+            bool last = i == definitions.Count - 1;
+            string connector = last ? "  └─ " : "  ├─ ";
+            string linePrefix = last ? "      " : "  │   ";
+
+            string displayName;
+            try { displayName = Path.GetRelativePath(projectPath, filePath); }
+            catch { displayName = Path.GetFileName(filePath); }
+
+            Console.WriteLine($"{connector}{displayName}");
+            Console.WriteLine($"{linePrefix}  Вид:    {def.Symbol.Kind}");
+            Console.WriteLine($"{linePrefix}  Скоуп:  {def.Symbol.DeclaringScope.Name}");
+            Console.WriteLine($"{linePrefix}  Строка: {def.Line}, столбец {def.Column}");
+            if (def.Symbol.TypeName != null)
+                Console.WriteLine($"{linePrefix}  Тип:    {def.Symbol.TypeName}");
+            Console.WriteLine($"{linePrefix}  Код:    {def.Preview}");
+        }
     }
 
     // ── Вывод вхождений ──────────────────────────────────────────────────────
 
     private static void PrintAllReferences(string symbolName,
-        List<(string fileName, List<Reference> refs)> allRefs,
+        List<(string filePath, List<Reference> refs)> allRefs,
         string projectPath)
     {
         int totalRefs = allRefs.Sum(x => x.refs.Count);
@@ -160,7 +146,6 @@ public class ProjectAnalyzer
             var (filePath, refs) = allRefs[fi];
             bool lastFile = fi == allRefs.Count - 1;
 
-            // Имя файла относительно папки проекта
             string displayName;
             try { displayName = Path.GetRelativePath(projectPath, filePath); }
             catch { displayName = Path.GetFileName(filePath); }
@@ -172,18 +157,30 @@ public class ProjectAnalyzer
 
             foreach (var r in refs.OrderBy(r => r.StartByte))
             {
-                // Подсвечиваем имя символа в строке кода
-                string highlighted = HighlightInLine(r.LinePreview, symbolName);
+                string highlighted = HighlightInLine(r.LinePreview, symbolName, r.Column);
                 Console.WriteLine($"{linePrefix}  строка {r.Line,4}:{r.Column,-4} {highlighted}");
             }
         }
     }
 
-    // ── Подсветка имени в строке (символы >>> <<< вокруг имени) ─────────────
+    // ── Подсветка по точной позиции столбца ─────────────────────────────────
 
-    private static string HighlightInLine(string line, string symbolName)
+    private static string HighlightInLine(string line, string symbolName, int column)
     {
-        int idx = line.IndexOf(symbolName, StringComparison.OrdinalIgnoreCase);
+        // column — 1-based; в строке превью начало может быть обрезано (Trim),
+        // поэтому сначала пробуем точную позицию, затем fallback на IndexOf.
+        int idx = column - 1;
+        if (idx >= 0 && idx + symbolName.Length <= line.Length &&
+            string.Equals(line.Substring(idx, symbolName.Length), symbolName,
+                          StringComparison.OrdinalIgnoreCase))
+        {
+            return line.Substring(0, idx)
+                 + "►" + line.Substring(idx, symbolName.Length) + "◄"
+                 + line.Substring(idx + symbolName.Length);
+        }
+
+        // Fallback — ищем первое вхождение (строка могла быть обрезана Trim'ом)
+        idx = line.IndexOf(symbolName, StringComparison.OrdinalIgnoreCase);
         if (idx < 0) return line;
         return line.Substring(0, idx)
              + "►" + line.Substring(idx, symbolName.Length) + "◄"
@@ -192,8 +189,27 @@ public class ProjectAnalyzer
 
     // ── Вспомогательные ──────────────────────────────────────────────────────
 
+    private List<string>? CollectFiles(string projectPath)
+    {
+        if (File.Exists(projectPath) &&
+            projectPath.EndsWith(".pas", StringComparison.OrdinalIgnoreCase))
+        {
+            return new List<string> { projectPath };
+        }
+
+        if (Directory.Exists(projectPath))
+        {
+            return Directory.GetFiles(projectPath, "*.pas", SearchOption.AllDirectories)
+                            .OrderBy(f => f)
+                            .ToList();
+        }
+
+        Console.Error.WriteLine($"Не найден файл или папка: {projectPath}");
+        return null;
+    }
+
     private static string FilesWord(int n) =>
-        n == 1 ? "файле" : n is 2 or 3 or 4 ? "файлах" : "файлах";
+        n == 1 ? "файле" : "файлах";
 
     internal static string ReadFile(string path)
     {
