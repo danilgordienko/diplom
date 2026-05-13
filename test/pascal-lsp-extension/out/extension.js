@@ -18153,27 +18153,46 @@ var fs = __toESM(require("fs"));
 var vscode = __toESM(require("vscode"));
 var import_node = __toESM(require_node3());
 var client;
+var out;
 function activate(context) {
+  out = vscode.window.createOutputChannel("Pascal Language Server");
+  context.subscriptions.push(out);
+  out.show(true);
+  out.appendLine("=== Pascal LSP \u0430\u043A\u0442\u0438\u0432\u0438\u0440\u0443\u0435\u0442\u0441\u044F ===");
+  out.appendLine(`extensionPath: ${context.extensionPath}`);
   const config = vscode.workspace.getConfiguration("pascal-lsp");
   const serverPath = config.get("serverPath") ?? "";
-  let exePath;
-  let csharpProject;
-  if (serverPath && fs.existsSync(serverPath)) {
-    exePath = serverPath;
-    csharpProject = path.dirname(path.dirname(path.dirname(path.dirname(serverPath))));
-  } else {
-    csharpProject = path.join(context.extensionPath, "..");
-    exePath = path.join(csharpProject, "bin", "Debug", "net8.0", "test.exe");
+  out.appendLine(`\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430 serverPath: "${serverPath}"`);
+  let exePath = serverPath;
+  if (!exePath || !fs.existsSync(exePath)) {
+    const candidate = path.join(context.extensionPath, "..", "bin", "Debug", "net8.0", "test.exe");
+    out.appendLine(`\u041F\u0440\u043E\u0432\u0435\u0440\u044F\u044E \u043A\u0430\u043D\u0434\u0438\u0434\u0430\u0442 (\u0440\u044F\u0434\u043E\u043C \u0441 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043D\u0438\u0435\u043C): ${candidate}`);
+    if (fs.existsSync(candidate)) {
+      exePath = candidate;
+    }
   }
-  const useExe = fs.existsSync(exePath);
+  const useExe = !!exePath && fs.existsSync(exePath);
+  out.appendLine(`exe \u043D\u0430\u0439\u0434\u0435\u043D: ${useExe}  \u043F\u0443\u0442\u044C: ${exePath || "(\u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D)"}`);
   let serverOptions;
   if (useExe) {
+    out.appendLine(`\u0417\u0430\u043F\u0443\u0441\u043A\u0430\u044E: ${exePath}`);
     serverOptions = {
       command: exePath,
       args: ["--lsp"],
       transport: import_node.TransportKind.stdio
     };
   } else {
+    const csharpProject = path.join(context.extensionPath, "..");
+    out.appendLine(`exe \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D, \u043F\u0440\u043E\u0431\u0443\u044E dotnet run \u0432: ${csharpProject}`);
+    const csproj = fs.readdirSync(csharpProject).find((f) => f.endsWith(".csproj"));
+    if (!csproj) {
+      const msg = `\u041D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D \u043D\u0438 test.exe, \u043D\u0438 .csproj \u0432 ${csharpProject}.
+\u0423\u043A\u0430\u0436\u0438 \u043F\u0443\u0442\u044C \u043A \u0441\u0435\u0440\u0432\u0435\u0440\u0443 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445: pascal-lsp.serverPath`;
+      out.appendLine("\u041E\u0428\u0418\u0411\u041A\u0410: " + msg);
+      vscode.window.showErrorMessage("Pascal LSP: " + msg);
+      return;
+    }
+    out.appendLine(`\u041D\u0430\u0439\u0434\u0435\u043D \u043F\u0440\u043E\u0435\u043A\u0442: ${csproj}, \u0437\u0430\u043F\u0443\u0441\u043A\u0430\u044E dotnet run`);
     serverOptions = {
       command: "dotnet",
       args: ["run", "--project", csharpProject, "--", "--lsp"],
@@ -18186,7 +18205,9 @@ function activate(context) {
     ],
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.pas")
-    }
+    },
+    outputChannel: out
+    // логи сервера тоже идут в наш канал
   };
   client = new import_node.LanguageClient(
     "pascal-lsp",
@@ -18194,15 +18215,26 @@ function activate(context) {
     serverOptions,
     clientOptions
   );
-  client.start();
+  out.appendLine("\u0417\u0430\u043F\u0443\u0441\u043A\u0430\u044E LanguageClient...");
+  client.start().then(() => {
+    out.appendLine("LanguageClient \u0437\u0430\u043F\u0443\u0449\u0435\u043D \u0443\u0441\u043F\u0435\u0448\u043D\u043E.");
+  }).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    out.appendLine("\u041E\u0428\u0418\u0411\u041A\u0410 \u0437\u0430\u043F\u0443\u0441\u043A\u0430 LanguageClient: " + msg);
+    vscode.window.showErrorMessage("Pascal LSP \u043D\u0435 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u043B\u0441\u044F: " + msg);
+  });
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
   statusBar.text = "$(symbol-misc) Pascal LSP";
-  statusBar.tooltip = useExe ? `\u0421\u0435\u0440\u0432\u0435\u0440: ${exePath}` : `\u0421\u0435\u0440\u0432\u0435\u0440: dotnet run \u0432 ${csharpProject}`;
+  statusBar.tooltip = useExe ? `\u0421\u0435\u0440\u0432\u0435\u0440: ${exePath}` : "\u0421\u0435\u0440\u0432\u0435\u0440: dotnet run";
+  statusBar.command = "pascal-lsp.showOutput";
   statusBar.show();
   context.subscriptions.push(statusBar);
-  const mode = useExe ? `exe: ${exePath}` : `dotnet run: ${csharpProject}`;
-  vscode.window.showInformationMessage(`Pascal LSP \u0437\u0430\u043F\u0443\u0449\u0435\u043D (${mode})`);
-  console.log(`[pascal-lsp] ${mode}`);
+  context.subscriptions.push(
+    vscode.commands.registerCommand("pascal-lsp.showOutput", () => out.show())
+  );
+  vscode.window.showInformationMessage(
+    useExe ? `Pascal LSP: \u0437\u0430\u043F\u0443\u0449\u0435\u043D (${path.basename(exePath)})` : "Pascal LSP: \u0437\u0430\u043F\u0443\u0449\u0435\u043D (dotnet run)"
+  );
 }
 function deactivate() {
   return client?.stop();

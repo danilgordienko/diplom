@@ -4,68 +4,46 @@ using System.Text;
 
 static class Program
 {
-    const string SamplesFolder =
-        @"C:\Users\danil\OneDrive\Рабочий стол\projects\димплом\test\test\samples";
+    static readonly string SamplesFolder =
+    Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "samples");
 
     static void Main(string[] args)
     {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
         try
         {
+            bool lspMode = args.Length > 0 && (args[0] == "--lsp" || args[0] == "--stdio");
+            if (lspMode)
+                RedirectConsoleToStderr();
+
             using var parser = new TreeSitterParser();
 
             if (args.Length == 0)
             {
-                var grammarAnalyzer = new GrammarAnalyzer(parser);
-                grammarAnalyzer.Run(SamplesFolder);
+                new GrammarAnalyzer(parser).Run(SamplesFolder);
                 return;
             }
 
             switch (args[0])
             {
+                case "--lsp":
+                case "--stdio":
+                    new LspServer(parser).Run();
+                    break;
+
                 case "--test":
                     GrammarTests.RunAll(parser);
                     break;
 
                 case "--inspect":
-                    {
-                        string filePath = args.Length > 1 ? args[1] : args[^1];
-                        var grammarAnalyzer = new GrammarAnalyzer(parser);
-                        grammarAnalyzer.InspectFile(filePath);
-                        break;
-                    }
-
-                case "--tree":
-                    {
-                        string filePath = args.Length > 1 ? args[1] : args[^1];
-                        var grammarAnalyzer = new GrammarAnalyzer(parser);
-                        grammarAnalyzer.DumpTree(filePath);
-                        break;
-                    }
-
-                case "--find":
-                    {
-                        // program.exe --find COUNT C:\MyProject
-                        // program.exe --find COUNT main.pas
-                        if (args.Length < 3)
-                        {
-                            Console.Error.WriteLine("Использование: program.exe --find ИМЯ ПУТЬ");
-                            Console.Error.WriteLine("  ПУТЬ — папка с проектом или один .pas файл");
-                            break;
-                        }
-                        string symbolName = args[1];
-                        string projectPath = args[2];
-
-                        var projectAnalyzer = new ProjectAnalyzer(parser);
-                        projectAnalyzer.FindSymbol(symbolName, projectPath);
-                        break;
-                    }
+                    string filePath = args.Length > 1 ? args[1] : args[^1];
+                    new GrammarAnalyzer(parser).InspectFile(filePath);
+                    break;
 
                 default:
-                    {
-                        var grammarAnalyzer = new GrammarAnalyzer(parser);
-                        grammarAnalyzer.InspectFile(args[^1]);
-                        break;
-                    }
+                    new GrammarAnalyzer(parser).InspectFile(args[^1]);
+                    break;
             }
         }
         catch (Exception ex)
@@ -74,5 +52,13 @@ static class Program
             Console.Error.WriteLine(ex.StackTrace);
             Environment.Exit(1);
         }
+    }
+
+    private static void RedirectConsoleToStderr()
+    {
+        Console.SetOut(new StreamWriter(Console.OpenStandardError(), Encoding.UTF8)
+        {
+            AutoFlush = true,
+        });
     }
 }

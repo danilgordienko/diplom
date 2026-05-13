@@ -477,7 +477,7 @@ public class SymbolCollector
 
     /// <summary>
     /// Добавить символ в текущий скоуп.
-    /// При дублировании — добавляет диагностику, возвращает заглушку.
+    /// При дублировании — добавляет диагностику с позицией повторного объявления.
     /// </summary>
     private Symbol Define(string name, SymbolKind kind, TSNode node)
     {
@@ -487,9 +487,14 @@ public class SymbolCollector
 
         if (!_current.TryDefine(sym, out var existing))
         {
-            _table.Diagnostics.Add(
-                $"Дублирование: '{name}' уже объявлен в {_current.Name} " +
-                $"(байт {existing!.StartByte}), повторное объявление на байт {start}");
+            // Позиция указывает на повторное объявление (не на первое)
+            // чтобы пользователь видел подчёркивание именно на дубликате
+            _table.Diagnostics.Add(new SymbolDiagnostic(
+                message: $"'{name}' уже объявлен в этой области видимости",
+                startByte: start,
+                endByte: end,
+                severity: 2   // Warning
+            ));
         }
         return sym;
     }

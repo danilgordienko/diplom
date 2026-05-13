@@ -24,6 +24,11 @@ using System.Text.Json.Serialization;
 ///   textDocument/references  — все вхождения символа (по всему проекту)
 ///   workspace/symbol         — поиск символа по имени во всём проекте 
 ///
+/// Диагностики:
+///   При didOpen и didChange сервер анализирует файл и отправляет
+///   textDocument/publishDiagnostics с синтаксическими ошибками (из tree-sitter AST)
+///   и семантическими предупреждениями (дублирование объявлений).
+///
 /// Логика "по всему проекту":
 ///   При initialize сервер читает rootPath и загружает все .pas файлы в _documents.
 ///   textDocument/definition и textDocument/references ищут сначала имя символа
@@ -48,6 +53,9 @@ public class LspServer
 
     private bool _shutdownRequested = false;
 
+    // Ссылка на stdout — нужна для отправки уведомлений (diagnostics)
+    private BinaryWriter? _stdout;
+
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -67,7 +75,7 @@ public class LspServer
         Log("LSP сервер запущен, ожидаю сообщения...");
 
         using var stdin = new BinaryReader(Console.OpenStandardInput());
-        using var stdout = new BinaryWriter(Console.OpenStandardOutput());
+        _stdout = new BinaryWriter(Console.OpenStandardOutput());
 
         while (true)
         {
@@ -82,7 +90,7 @@ public class LspServer
                 if (response != null)
                 {
                     Log($"→ {Truncate(response, 300)}");
-                    WriteMessage(stdout, response);
+                    WriteMessage(_stdout, response);
                 }
 
                 if (_shutdownRequested && message.Contains("\"method\":\"exit\""))
@@ -92,6 +100,7 @@ public class LspServer
             catch (Exception ex) { Log($"ОШИБКА в цикле: {ex.Message}"); }
         }
 
+        _stdout.Dispose();
         Log("LSP сервер завершён.");
     }
 
@@ -233,7 +242,7 @@ public class LspServer
         {
             try
             {
-                string text = ProjectAnalyzer.ReadFile(filePath);
+                string text = ReadFile(filePath);
                 if (text.Length == 0) continue;
 
                 string uri = PathToUri(filePath);
@@ -271,6 +280,10 @@ public class LspServer
         _documents[uri] = text;
         _cache.Remove(uri);
         Log($"didOpen: {uri}");
+
+        // Отправляем диагностики для этого файла
+        PublishDiagnostics(uri, text);
+
         return null;
     }
 
@@ -283,6 +296,10 @@ public class LspServer
         _documents[uri] = text;
         _cache.Remove(uri);
         Log($"didChange: {uri}");
+
+        // Обновляем диагностики при каждом изменении
+        PublishDiagnostics(uri, text);
+
         return null;
     }
 
@@ -291,15 +308,16 @@ public class LspServer
         string? uri = p?["textDocument"]?["uri"]?.GetValue<string>();
         if (uri == null) return null;
 
-        // При закрытии восстанавливаем версию с диска, чтобы остальные файлы
-        // проекта продолжали видеть актуальный текст.
+        // При закрытии очищаем диагностики для файла
+        ClearDiagnostics(uri);
+
         _cache.Remove(uri);
         string? filePath = UriToPath(uri);
         if (filePath != null && File.Exists(filePath))
         {
             try
             {
-                _documents[uri] = ProjectAnalyzer.ReadFile(filePath);
+                _documents[uri] = ReadFile(filePath);
                 Log($"didClose (восстановлен с диска): {uri}");
                 return null;
             }
@@ -309,6 +327,80 @@ public class LspServer
         _documents.Remove(uri);
         Log($"didClose (удалён из кэша): {uri}");
         return null;
+    }
+
+    // ── Диагностики ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Анализирует файл и отправляет диагностики клиенту.
+    /// Вызывается при didOpen и didChange.
+    /// </summary>
+    private void PublishDiagnostics(string uri, string source)
+    {
+        try
+        {
+            var analysis = GetOrAnalyze(uri, source);
+
+            var collector = new DiagnosticCollector(_parser);
+            var diagnostics = collector.Collect(source, analysis);
+
+            Log($"diagnostics: {uri} → {diagnostics.Count} ошибок");
+
+            // Формируем массив LSP Diagnostic
+            var lspDiags = diagnostics.Select(d => new
+            {
+                range = new
+                {
+                    start = new { line = d.StartLine, character = d.StartChar },
+                    end = new { line = d.EndLine, character = d.EndChar },
+                },
+                severity = d.Severity,
+                source = "pascal-lsp",
+                message = d.Message,
+            }).ToArray();
+
+            // Отправляем уведомление textDocument/publishDiagnostics
+            SendNotification("textDocument/publishDiagnostics", new
+            {
+                uri,
+                diagnostics = lspDiags,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log($"ОШИБКА при сборе диагностик: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Очищает диагностики при закрытии файла.
+    /// </summary>
+    private void ClearDiagnostics(string uri)
+    {
+        SendNotification("textDocument/publishDiagnostics", new
+        {
+            uri,
+            diagnostics = Array.Empty<object>(),
+        });
+    }
+
+    /// <summary>
+    /// Отправляет уведомление (notification) клиенту — без id, без ответа.
+    /// </summary>
+    private void SendNotification(string method, object @params)
+    {
+        if (_stdout == null) return;
+
+        var obj = new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["method"] = method,
+            ["params"] = JsonSerializer.SerializeToNode(@params, _jsonOpts),
+        };
+
+        string json = obj.ToJsonString(_jsonOpts);
+        Log($"→ notify: {Truncate(json, 200)}");
+        WriteMessage(_stdout, json);
     }
 
     // ── textDocument/definition ───────────────────────────────────────────────
@@ -599,6 +691,25 @@ public class LspServer
         string normalized = path.Replace('\\', '/');
         if (!normalized.StartsWith('/')) normalized = '/' + normalized;
         return "file://" + Uri.EscapeUriString(normalized);
+    }
+
+    // ── Чтение файлов с определением кодировки ───────────────────────────────
+
+    /// <summary>
+    /// Читает файл с автоматическим определением кодировки (UTF-8/16, Windows-1251).
+    /// </summary>
+    internal static string ReadFile(string path)
+    {
+        byte[] raw = File.ReadAllBytes(path);
+        if (raw.Length == 0) return "";
+        if (raw.Length >= 2 && raw[0] == 0xFF && raw[1] == 0xFE)
+            return Encoding.Unicode.GetString(raw).TrimStart('\uFEFF');
+        if (raw.Length >= 2 && raw[0] == 0xFE && raw[1] == 0xFF)
+            return Encoding.BigEndianUnicode.GetString(raw).TrimStart('\uFEFF');
+        if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
+            return Encoding.UTF8.GetString(raw, 3, raw.Length - 3);
+        try { return new UTF8Encoding(false, true).GetString(raw); }
+        catch { return Encoding.GetEncoding(1251).GetString(raw); }
     }
 
     // ── JSON-RPC ──────────────────────────────────────────────────────────────

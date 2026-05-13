@@ -14,6 +14,8 @@ using System.Collections.Generic;
 ///    её мы тоже пропускаем (разрешение полей — отдельная задача)
 ///  — скоупы отслеживаем так же, как в SymbolCollector, чтобы Lookup
 ///    искал в правильной области видимости
+///  — неразрешённые идентификаторы (не найденные в скоупе и не встроенные)
+///    записываются в список Unresolved для диагностик
 /// </summary>
 public class ReferenceCollector
 {
@@ -24,6 +26,12 @@ public class ReferenceCollector
 
     // Текущий скоуп — синхронизирован с деревом скоупов из первого прохода
     private Scope _current;
+
+    /// <summary>
+    /// Неразрешённые идентификаторы — не найдены ни в скоупе, ни в списке встроенных.
+    /// Используется DiagnosticCollector'ом для подсветки ошибок.
+    /// </summary>
+    public List<UnresolvedIdentifier> Unresolved { get; } = new();
 
     public ReferenceCollector(TreeSitterParser parser, string source,
                                SymbolTable table, ReferenceIndex index)
@@ -232,16 +240,121 @@ public class ReferenceCollector
 
         // Ищем символ в текущем скоупе и выше
         Symbol? sym = _current.Lookup(name);
-        if (sym == null) return; // не объявлен — внешний идентификатор, пропускаем
 
-        int start = (int)TreeSitterNative.csharp_ts_node_start_byte(node);
-        int end = (int)TreeSitterNative.csharp_ts_node_end_byte(node);
+        if (sym == null)
+        {
+            // Не нашли в скоупе — проверяем, не встроенный ли это идентификатор
+            if (!IsBuiltinIdentifier(name))
+            {
+                int start = (int)TreeSitterNative.csharp_ts_node_start_byte(node);
+                int end = (int)TreeSitterNative.csharp_ts_node_end_byte(node);
+                Unresolved.Add(new UnresolvedIdentifier(name, start, end));
+            }
+            return;
+        }
+
+        int startByte = (int)TreeSitterNative.csharp_ts_node_start_byte(node);
+        int endByte = (int)TreeSitterNative.csharp_ts_node_end_byte(node);
 
         // Пропускаем если это сама точка объявления символа
-        if (start == sym.StartByte) return;
+        if (startByte == sym.StartByte) return;
 
-        _index.Add(new Reference(sym, start, end, _source));
+        _index.Add(new Reference(sym, startByte, endByte, _source));
     }
+
+    // ── Встроенные идентификаторы PascalABC.NET ──────────────────────────────
+
+    /// <summary>
+    /// Проверяет, является ли имя встроенной функцией/типом/константой PascalABC.NET.
+    /// Такие идентификаторы не объявлены в пользовательском коде, но являются
+    /// частью языка — их нельзя подсвечивать как ошибки.
+    /// </summary>
+    private static bool IsBuiltinIdentifier(string name)
+    {
+        return _builtins.Contains(name.ToLowerInvariant());
+    }
+
+    private static readonly HashSet<string> _builtins = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Ввод-вывод
+        "write", "writeln", "print", "println", "readln", "read", "readkey",
+
+        // Файлы
+        "assign", "reset", "rewrite", "close", "eof", "eoln", "append",
+        "fileexists", "deletefile", "rename",
+
+        // Математика
+        "abs", "sqr", "sqrt", "sin", "cos", "tan", "arctan", "exp", "ln", "log",
+        "log2", "log10", "power", "round", "trunc", "ceil", "floor", "frac", "int",
+        "max", "min", "random", "randomize", "odd", "succ", "pred", "sign", "pi",
+
+        // Строки
+        "length", "copy", "delete", "insert", "pos", "concat", "uppercase", "lowercase",
+        "trim", "trimleft", "trimright", "chr", "ord", "strtoint", "strtofloat",
+        "inttostr", "floattostr", "format", "setlength", "stringofchar",
+
+        // Преобразования типов
+        "integer", "real", "double", "single", "string", "boolean", "char", "byte",
+        "shortint", "smallint", "word", "longword", "longint", "int64", "uint64",
+        "cardinal", "extended", "biginteger",
+
+        // Системные типы
+        "object", "tobject", "tlist", "tpoint",
+        "array", "set", "file", "text", "pointer",
+
+        // Логические
+        "true", "false", "nil", "maxint",
+
+        // Системные функции
+        "inc", "dec", "new", "dispose", "sizeof", "typeof", "default",
+        "high", "low", "assigned", "freemem", "getmem",
+        "halt", "exit", "break", "continue",
+        "assert", "raise",
+
+        // Вывод и форматирование
+        "writef", "writelnf", "printf", "printlnf",
+        "formatstr",
+
+        // Контейнеры и функциональный стиль
+        "range", "arr", "lst", "seq", "dict", "hset",
+        "sort", "sorted", "reverse", "reversed",
+        "zip", "enumerate",
+        "toarray", "tolist",
+        "where", "select", "aggregate", "takewhile", "skipwhile",
+        "take", "skip", "first", "last", "count", "sum", "average",
+        "any", "all", "contains", "distinct", "orderby", "orderbydescending",
+        "foreach", "map", "filter", "reduce", "flatmap",
+        "println", "print",
+
+        // Графика (PABCSystem, GraphABC)
+        "setwindowsize", "setwindowtitle", "clearwindow",
+        "setpencolor", "setpenwidth", "setbrushcolor",
+        "line", "circle", "ellipse", "rectangle", "fillrect",
+        "drawcircle", "fillcircle", "drawrectangle", "fillrectangle",
+        "moveto", "lineto", "textout", "floodfill",
+        "redcolor", "greencolor", "bluecolor", "clred", "clgreen", "clblue",
+        "clblack", "clwhite", "clyellow", "clgray",
+        "rgb", "sleep", "milliseconds",
+
+        // Исключения
+        "exception",
+
+        // PABCSystem
+        "swap", "val", "str",
+        "readinteger", "readreal", "readstring",
+        "readlninteger", "readlnreal", "readlnstring",
+        "readarrayinteger", "readarrayreal",
+        "arrfill", "arrgen", "arrrandom", "arrandominteger", "arrrandomreal",
+        "matrrandom", "matrrandominteger", "matrrandomreal",
+        "seqrandom", "seqrandominteger", "seqrandomreal",
+        "range",
+
+        // Множества и пр.
+        "include", "exclude",
+
+        // Ключевые слова которые tree-sitter может считать identifier
+        "self", "result", "inherited",
+    };
 
     // ── Поиск скоупа ─────────────────────────────────────────────────────────
 
@@ -294,5 +407,22 @@ public class ReferenceCollector
                 return _parser.GetNodeText(child, _source).Trim();
         }
         return "";
+    }
+}
+
+/// <summary>
+/// Неразрешённый идентификатор — не найден ни в скоупе, ни среди встроенных.
+/// </summary>
+public class UnresolvedIdentifier
+{
+    public string Name { get; }
+    public int StartByte { get; }
+    public int EndByte { get; }
+
+    public UnresolvedIdentifier(string name, int startByte, int endByte)
+    {
+        Name = name;
+        StartByte = startByte;
+        EndByte = endByte;
     }
 }

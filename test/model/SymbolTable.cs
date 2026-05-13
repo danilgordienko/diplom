@@ -10,14 +10,11 @@ public class SymbolTable
     /// <summary>Корневой скоуп — содержит символы верхнего уровня (unit, types, vars…).</summary>
     public Scope Root { get; } = new Scope("<root>", parent: null);
 
-    /// <summary>Диагностики, обнаруженные во время сбора (дублирующие объявления и т.п.).</summary>
-    public List<string> Diagnostics { get; } = new();
+    /// <summary>Структурированные диагностики с позицией в байтах.</summary>
+    public List<SymbolDiagnostic> Diagnostics { get; } = new();
 
     // ── Печать ──────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Выводит всё дерево скоупов со всеми символами в консоль.
-    /// </summary>
     public void Print()
     {
         Console.WriteLine();
@@ -31,7 +28,7 @@ public class SymbolTable
             Console.WriteLine();
             Console.WriteLine($"  Диагностики ({Diagnostics.Count}):");
             foreach (var d in Diagnostics)
-                Console.WriteLine($"    ⚠ {d}");
+                Console.WriteLine($"    ⚠ {d.Message}");
         }
         Console.WriteLine("══════════════════════════════════════════");
     }
@@ -45,7 +42,6 @@ public class SymbolTable
 
         string childPrefix = prefix + cont;
 
-        // Символы этого скоупа
         var symbols = new List<Symbol>(scope.Symbols);
         symbols.Sort((a, b) => a.StartByte.CompareTo(b.StartByte));
 
@@ -61,8 +57,33 @@ public class SymbolTable
             Console.WriteLine($"{childPrefix}{sb}{sym.Kind,-12} {sym.Name}{typeStr}{innerStr}");
         }
 
-        // Дочерние скоупы (тела функций, классы)
         for (int i = 0; i < scope.Children.Count; i++)
             PrintScope(scope.Children[i], childPrefix, isLast: i == scope.Children.Count - 1);
+    }
+}
+
+/// <summary>
+/// Диагностика с байтовой позицией — для корректного отображения в редакторе.
+/// </summary>
+public class SymbolDiagnostic
+{
+    /// <summary>Сообщение об ошибке.</summary>
+    public string Message { get; }
+
+    /// <summary>Байтовая позиция начала проблемного идентификатора.</summary>
+    public int StartByte { get; }
+
+    /// <summary>Байтовая позиция конца проблемного идентификатора.</summary>
+    public int EndByte { get; }
+
+    /// <summary>Серьёзность: 1=Error, 2=Warning.</summary>
+    public int Severity { get; }
+
+    public SymbolDiagnostic(string message, int startByte, int endByte, int severity = 2)
+    {
+        Message = message;
+        StartByte = startByte;
+        EndByte = endByte;
+        Severity = severity;
     }
 }

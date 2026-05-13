@@ -2,7 +2,6 @@
 
 /// <summary>
 /// Утилиты для работы с байтовыми позициями в исходном коде.
-/// Выделены отдельно, чтобы не дублировать код между SymbolAnalyzer и Reference.
 /// </summary>
 public static class SourceUtils
 {
@@ -52,7 +51,7 @@ public static class SourceUtils
     }
 
     /// <summary>
-    /// LSP использует 0-based строки и столбцы. Конвертируем из нашего 1-based.
+    /// Конвертирует байтовую позицию в LSP-позицию (0-based).
     /// </summary>
     public static (int line, int character) ToLspPosition(string source, int bytePos)
     {
@@ -61,7 +60,7 @@ public static class SourceUtils
     }
 
     /// <summary>
-    /// Конвертирует LSP-позицию (0-based) в байт.
+    /// Конвертирует LSP-позицию (0-based) в байтовую позицию.
     /// </summary>
     public static int FromLspPosition(string source, int lspLine, int lspCharacter)
         => LineColToByte(source, lspLine + 1, lspCharacter + 1);
