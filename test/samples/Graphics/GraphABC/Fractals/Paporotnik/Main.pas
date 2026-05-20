@@ -9,6 +9,7 @@ const
   WindowWidth= Width * 3;        
   Brightness = 170;
 
+
 var 
   Paprotnik := new PaporotnikFractal(PaprotnikData);
   SimplePaprotnik := new PaporotnikFractal(SimplePaprotnikData);

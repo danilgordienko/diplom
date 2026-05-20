@@ -7,15 +7,8 @@ using System.Collections.Generic;
 /// разрешает их в символы через Scope.Lookup() и записывает
 /// вхождения в ReferenceIndex.
 ///
-/// Важные правила:
-///  — идентификаторы в позиции объявления (declVar, declField, …) пропускаем —
-///    они уже есть в SymbolTable как определения
-///  — правая часть точки (obj.Field) — это поле, не локальная переменная;
-///    её мы тоже пропускаем (разрешение полей — отдельная задача)
-///  — скоупы отслеживаем так же, как в SymbolCollector, чтобы Lookup
-///    искал в правильной области видимости
-///  — неразрешённые идентификаторы (не найденные в скоупе и не встроенные)
-///    записываются в список Unresolved для диагностик
+/// Неразрешённые идентификаторы (не встроенные и не for-переменные)
+/// записываются в список Unresolved для диагностик.
 /// </summary>
 public class ReferenceCollector
 {
@@ -23,15 +16,17 @@ public class ReferenceCollector
     private readonly string _source;
     private readonly SymbolTable _table;
     private readonly ReferenceIndex _index;
-
-    // Текущий скоуп — синхронизирован с деревом скоупов из первого прохода
     private Scope _current;
 
     /// <summary>
-    /// Неразрешённые идентификаторы — не найдены ни в скоупе, ни в списке встроенных.
-    /// Используется DiagnosticCollector'ом для подсветки ошибок.
+    /// Неразрешённые идентификаторы — не найдены ни в скоупе, ни среди встроенных.
     /// </summary>
     public List<UnresolvedIdentifier> Unresolved { get; } = new();
+
+    /// <summary>
+    /// Имена, неявно объявленные в for-циклах (for i := ...).
+    /// </summary>
+    private readonly HashSet<string> _forVars = new(StringComparer.OrdinalIgnoreCase);
 
     public ReferenceCollector(TreeSitterParser parser, string source,
                                SymbolTable table, ReferenceIndex index)
@@ -43,24 +38,12 @@ public class ReferenceCollector
         _current = table.Root;
     }
 
-    // ── Публичный вход ───────────────────────────────────────────────────────
-
     public void Collect()
     {
         var root = _parser.GetRootNode();
         Visit(root, inDeclPosition: false, afterDot: false);
     }
 
-    // ── Диспетчер ────────────────────────────────────────────────────────────
-
-    /// <param name="inDeclPosition">
-    ///   true — мы внутри узла объявления (declVar, declField, …),
-    ///   identifier здесь — имя объявляемого символа, не вхождение.
-    /// </param>
-    /// <param name="afterDot">
-    ///   true — identifier является правой частью точки (obj.Member),
-    ///   разрешать в текущем скоупе не нужно.
-    /// </param>
     private void Visit(TSNode node, bool inDeclPosition, bool afterDot)
     {
         if (node.id == IntPtr.Zero) return;
@@ -69,8 +52,6 @@ public class ReferenceCollector
 
         switch (type)
         {
-            // ── Узлы, которые меняют скоуп ──────────────────────────────────
-
             case "program":
             case "unit":
             case "namespaceUnit":
@@ -87,8 +68,6 @@ public class ReferenceCollector
                 VisitDeclType(node);
                 return;
 
-            // ── Узлы объявлений — имена здесь не являются вхождениями ───────
-
             case "declVar":
             case "declConst":
             case "declField":
@@ -97,23 +76,13 @@ public class ReferenceCollector
             case "declEnumValue":
             case "varAssignDef":
             case "varDef":
-                // Тип (после ':') разрешать можно — это использование типа.
-                // Имена (до ':') — объявление, пропускаем.
-                VisitDeclNode(node);
-                return;
-
             case "declArg":
-                // Параметры функции — имена объявляются, тип — вхождение
                 VisitDeclNode(node);
                 return;
 
             case "declProc":
-                // forward-декларация: имя функции — объявление, параметры — тоже
-                // просто спускаемся не фиксируя ничего как вхождение
                 VisitChildren(node, inDeclPosition: true, afterDot: false);
                 return;
-
-            // ── Доступ через точку: левая часть — ref, правая — пропуск ─────
 
             case "exprDot":
             case "exprNullDot":
@@ -122,23 +91,17 @@ public class ReferenceCollector
                 VisitDotExpr(node);
                 return;
 
-            // ── Обычный идентификатор в выражении ───────────────────────────
-
             case "identifier":
                 if (!inDeclPosition && !afterDot)
                     TryRecord(node);
                 return;
 
-            // ── Секции — спускаемся прозрачно ───────────────────────────────
-
-            case "interface":
-            case "implementation":
-            case "initialization":
-            case "finalization":
-            case "shortProgram":
-            case "bareProgram":
-            case "simpleUnit":
             default:
+                if (IsForLikeNode(type))
+                {
+                    VisitForNode(node);
+                    return;
+                }
                 VisitChildren(node, inDeclPosition: false, afterDot: false);
                 return;
         }
@@ -151,70 +114,38 @@ public class ReferenceCollector
             Visit(_parser.GetChild(node, i), inDeclPosition, afterDot);
     }
 
-    // ── Узел с переходом скоупа ──────────────────────────────────────────────
-
     private void VisitWithScope(TSNode node, string scopeName, bool inDeclPosition)
     {
-        // Ищем вложенный скоуп, созданный SymbolCollector'ом
         Scope? inner = FindInnerScope(scopeName);
         if (inner != null) PushScope(inner);
-
         VisitChildren(node, inDeclPosition: false, afterDot: false);
-
         if (inner != null) PopScope();
     }
-
-    // ── Объявление типа ──────────────────────────────────────────────────────
 
     private void VisitDeclType(TSNode node)
     {
-        // Имя типа — объявление, не фиксируем.
-        // Тело (правая часть) — спускаемся, возможно там есть скоуп класса.
         string name = ExtractFirstIdentifier(node);
         Scope? inner = !string.IsNullOrEmpty(name) ? FindInnerScope(name) : null;
         if (inner != null) PushScope(inner);
-
         VisitChildren(node, inDeclPosition: false, afterDot: false);
-
         if (inner != null) PopScope();
     }
 
-    // ── Узел объявления: имена — пропуск, типы — вхождения ──────────────────
-
     private void VisitDeclNode(TSNode node)
     {
-        // Идём по потомкам вручную:
-        // identifier до ':' — имя объявляемого символа → пропускаем
-        // всё после ':' (typeref и т.д.) → это использование типа → фиксируем
         bool seenColon = false;
         uint n = _parser.GetChildCount(node);
         for (uint i = 0; i < n; i++)
         {
             var child = _parser.GetChild(node, i);
-            string ct = _parser.GetNodeType(child);
             string txt = _parser.GetNodeText(child, _source).Trim();
-
             if (txt == ":") { seenColon = true; continue; }
-
-            if (!seenColon)
-            {
-                // До двоеточия — имена объявлений; спускаемся с флагом inDecl
-                Visit(child, inDeclPosition: true, afterDot: false);
-            }
-            else
-            {
-                // После двоеточия — тип; это вхождение типа
-                Visit(child, inDeclPosition: false, afterDot: false);
-            }
+            Visit(child, inDeclPosition: !seenColon, afterDot: false);
         }
     }
 
-    // ── Доступ через точку ───────────────────────────────────────────────────
-
     private void VisitDotExpr(TSNode node)
     {
-        // Структура: lhs  '.'  rhs
-        // lhs — полноценное выражение, rhs — имя поля (не разрешаем в скоупе)
         uint n = _parser.GetChildCount(node);
         bool seenDot = false;
         for (uint i = 0; i < n; i++)
@@ -226,25 +157,58 @@ public class ReferenceCollector
                 seenDot = true;
                 continue;
             }
-            // Левая часть — обычный ref; правая — afterDot=true
             Visit(child, inDeclPosition: false, afterDot: seenDot);
         }
     }
 
-    // ── Запись вхождения ─────────────────────────────────────────────────────
+    /// <summary>
+    /// Определяет, является ли тип узла for-подобной конструкцией.
+    /// Разные грамматики tree-sitter используют разные имена:
+    /// stmtFor, stmtForeach, stmtForIn, forStatement, и т.д.
+    /// Ловим все вариации.
+    /// </summary>
+    private static bool IsForLikeNode(string type)
+    {
+        return type.StartsWith("stmtFor", StringComparison.OrdinalIgnoreCase)
+            || type.StartsWith("for", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Обработка for-узла: первый identifier — переменная цикла,
+    /// запоминаем её как неявно объявленную.
+    /// </summary>
+    private void VisitForNode(TSNode node)
+    {
+        bool foundLoopVar = false;
+        uint n = _parser.GetChildCount(node);
+        for (uint i = 0; i < n; i++)
+        {
+            var child = _parser.GetChild(node, i);
+            string ct = _parser.GetNodeType(child);
+
+            if (!foundLoopVar && ct == "identifier")
+            {
+                string name = _parser.GetNodeText(child, _source).Trim();
+                if (!string.IsNullOrEmpty(name))
+                    _forVars.Add(name);
+                foundLoopVar = true;
+                continue;
+            }
+
+            Visit(child, inDeclPosition: false, afterDot: false);
+        }
+    }
 
     private void TryRecord(TSNode node)
     {
         string name = _parser.GetNodeText(node, _source).Trim();
         if (string.IsNullOrEmpty(name)) return;
 
-        // Ищем символ в текущем скоупе и выше
         Symbol? sym = _current.Lookup(name);
 
         if (sym == null)
         {
-            // Не нашли в скоупе — проверяем, не встроенный ли это идентификатор
-            if (!IsBuiltinIdentifier(name))
+            if (!IsBuiltinIdentifier(name) && !_forVars.Contains(name))
             {
                 int start = (int)TreeSitterNative.csharp_ts_node_start_byte(node);
                 int end = (int)TreeSitterNative.csharp_ts_node_end_byte(node);
@@ -256,19 +220,11 @@ public class ReferenceCollector
         int startByte = (int)TreeSitterNative.csharp_ts_node_start_byte(node);
         int endByte = (int)TreeSitterNative.csharp_ts_node_end_byte(node);
 
-        // Пропускаем если это сама точка объявления символа
         if (startByte == sym.StartByte) return;
 
         _index.Add(new Reference(sym, startByte, endByte, _source));
     }
 
-    // ── Встроенные идентификаторы PascalABC.NET ──────────────────────────────
-
-    /// <summary>
-    /// Проверяет, является ли имя встроенной функцией/типом/константой PascalABC.NET.
-    /// Такие идентификаторы не объявлены в пользовательском коде, но являются
-    /// частью языка — их нельзя подсвечивать как ошибки.
-    /// </summary>
     private static bool IsBuiltinIdentifier(string name)
     {
         return _builtins.Contains(name.ToLowerInvariant());
@@ -278,6 +234,7 @@ public class ReferenceCollector
     {
         // Ввод-вывод
         "write", "writeln", "print", "println", "readln", "read", "readkey",
+        "writef", "writelnf", "printf", "printlnf", "formatstr",
 
         // Файлы
         "assign", "reset", "rewrite", "close", "eof", "eoln", "append",
@@ -293,7 +250,7 @@ public class ReferenceCollector
         "trim", "trimleft", "trimright", "chr", "ord", "strtoint", "strtofloat",
         "inttostr", "floattostr", "format", "setlength", "stringofchar",
 
-        // Преобразования типов
+        // Типы
         "integer", "real", "double", "single", "string", "boolean", "char", "byte",
         "shortint", "smallint", "word", "longword", "longint", "int64", "uint64",
         "cardinal", "extended", "biginteger",
@@ -308,12 +265,7 @@ public class ReferenceCollector
         // Системные функции
         "inc", "dec", "new", "dispose", "sizeof", "typeof", "default",
         "high", "low", "assigned", "freemem", "getmem",
-        "halt", "exit", "break", "continue",
-        "assert", "raise",
-
-        // Вывод и форматирование
-        "writef", "writelnf", "printf", "printlnf",
-        "formatstr",
+        "halt", "exit", "break", "continue", "assert", "raise",
 
         // Контейнеры и функциональный стиль
         "range", "arr", "lst", "seq", "dict", "hset",
@@ -324,9 +276,8 @@ public class ReferenceCollector
         "take", "skip", "first", "last", "count", "sum", "average",
         "any", "all", "contains", "distinct", "orderby", "orderbydescending",
         "foreach", "map", "filter", "reduce", "flatmap",
-        "println", "print",
 
-        // Графика (PABCSystem, GraphABC)
+        // Графика
         "setwindowsize", "setwindowtitle", "clearwindow",
         "setpencolor", "setpenwidth", "setbrushcolor",
         "line", "circle", "ellipse", "rectangle", "fillrect",
@@ -347,28 +298,20 @@ public class ReferenceCollector
         "arrfill", "arrgen", "arrrandom", "arrandominteger", "arrrandomreal",
         "matrrandom", "matrrandominteger", "matrrandomreal",
         "seqrandom", "seqrandominteger", "seqrandomreal",
-        "range",
-
-        // Множества и пр.
         "include", "exclude",
 
         // Ключевые слова которые tree-sitter может считать identifier
         "self", "result", "inherited",
     };
 
-    // ── Поиск скоупа ─────────────────────────────────────────────────────────
-
     private Scope? FindInnerScope(string name)
     {
-        // Ищем символ с таким именем в текущем скоупе
         Symbol? sym = _current.LookupLocal(name);
         return sym?.InnerScope;
     }
 
     private void PushScope(Scope scope) => _current = scope;
     private void PopScope() => _current = _current.Parent ?? _table.Root;
-
-    // ── Вспомогательные ──────────────────────────────────────────────────────
 
     private string FindModuleName(TSNode node)
     {
@@ -385,7 +328,6 @@ public class ReferenceCollector
 
     private string FindProcName(TSNode node)
     {
-        // defProc содержит declProc как header
         uint n = _parser.GetChildCount(node);
         for (uint i = 0; i < n; i++)
         {

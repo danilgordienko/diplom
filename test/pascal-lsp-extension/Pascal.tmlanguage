@@ -1,0 +1,170 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Pascal",
+  "scopeName": "source.pascal",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.pascal",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.brace.pascal",
+          "begin": "\\{",
+          "end": "\\}"
+        },
+        {
+          "name": "comment.block.parenthesis.pascal",
+          "begin": "\\(\\*",
+          "end": "\\*\\)"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.pascal",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pascal",
+              "match": "''"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.pascal",
+          "begin": "\"",
+          "end": "\""
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.pascal",
+          "match": "\\$[0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.float.pascal",
+          "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.pascal",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.pascal",
+          "match": "(?i)\\b(if|then|else|begin|end|while|do|for|to|downto|repeat|until|case|of|with|goto|break|continue|exit|halt|raise|try|except|finally|on)\\b"
+        },
+        {
+          "name": "keyword.control.flow.pascal",
+          "match": "(?i)\\b(program|unit|library|uses|interface|implementation|initialization|finalization)\\b"
+        },
+        {
+          "name": "keyword.declaration.pascal",
+          "match": "(?i)\\b(var|const|type|label|resourcestring|threadvar)\\b"
+        },
+        {
+          "name": "keyword.declaration.function.pascal",
+          "match": "(?i)\\b(procedure|function|constructor|destructor|operator|property)\\b"
+        },
+        {
+          "name": "keyword.declaration.type.pascal",
+          "match": "(?i)\\b(class|record|object|interface|packed|inherited|abstract|virtual|override|overload|reintroduce|dynamic|static|sealed|partial)\\b"
+        },
+        {
+          "name": "keyword.declaration.visibility.pascal",
+          "match": "(?i)\\b(public|private|protected|published|strict)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.pascal",
+          "match": "(?i)\\b(and|or|not|xor|shl|shr|in|is|as|div|mod)\\b"
+        },
+        {
+          "name": "keyword.other.pascal",
+          "match": "(?i)\\b(array|set|file|of|nil|true|false|self|result|new|dispose|inherited|forward|external|name|index|read|write|default|stored|nodefault|implements)\\b"
+        },
+        {
+          "name": "keyword.other.directive.pascal",
+          "match": "(?i)\\b(absolute|assembler|cdecl|export|far|near|pascal|register|safecall|stdcall|inline)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.pascal",
+          "match": "(?i)\\b(integer|smallint|shortint|longint|int64|byte|word|cardinal|longword|uint64|boolean|char|widechar|real|single|double|extended|currency|comp|string|ansistring|widestring|shortstring|pointer|variant|text)\\b"
+        },
+        {
+          "name": "support.type.class.pascal",
+          "match": "(?i)\\b(TObject|TList|TStringList|TStream|TComponent|Exception|BigInteger)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.pascal",
+          "match": ":="
+        },
+        {
+          "name": "keyword.operator.comparison.pascal",
+          "match": "<>|<=|>=|<|>|="
+        },
+        {
+          "name": "keyword.operator.arithmetic.pascal",
+          "match": "\\+|-|\\*|/"
+        },
+        {
+          "name": "keyword.operator.pointer.pascal",
+          "match": "@|\\^"
+        },
+        {
+          "name": "keyword.operator.range.pascal",
+          "match": "\\.\\."
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.terminator.pascal",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.pascal",
+          "match": ","
+        },
+        {
+          "name": "punctuation.accessor.dot.pascal",
+          "match": "\\."
+        },
+        {
+          "name": "punctuation.section.brackets.pascal",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.section.parens.pascal",
+          "match": "[()]"
+        }
+      ]
+    }
+  }
+}

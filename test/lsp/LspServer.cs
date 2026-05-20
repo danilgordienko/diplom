@@ -182,8 +182,6 @@ public class LspServer
                 "textDocument/definition" => HandleDefinition(id, root["params"]),
                 "textDocument/references" => HandleReferences(id, root["params"]),
                 "workspace/symbol" => HandleWorkspaceSymbol(id, root["params"]),
-                // Кастомный метод: точный поиск переменной по имени во всём проекте.
-                // Возвращает объявления + все вхождения — аналог --find через LSP.
                 "pascal/findSymbol" => HandleFindSymbol(id, root["params"]),
                 _ => id != null ? ErrorResponse(id, -32601, $"Method not found: {method}") : null,
             };
@@ -221,7 +219,7 @@ public class LspServer
             textDocumentSync = new { openClose = true, change = 1 },
             definitionProvider = true,
             referencesProvider = true,
-            workspaceSymbolProvider = true,   // объявляем поддержку workspace/symbol
+            workspaceSymbolProvider = true,
         };
 
         return SuccessResponse(id, new
@@ -620,6 +618,8 @@ public class LspServer
         foreach (var child in scope.Children)
             CollectMatchingSymbols(child, query, exactMatch, source, uri, results);
     }
+
+    // ── Утилиты ───────────────────────────────────────────────────────────────
 
     // ── Утилиты ───────────────────────────────────────────────────────────────
 

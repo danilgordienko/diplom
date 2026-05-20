@@ -4,8 +4,8 @@ using System.Text;
 
 static class Program
 {
-    static readonly string SamplesFolder =
-    Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "samples");
+    const string SamplesFolder =
+        @"..\..\..\samples";
 
     static void Main(string[] args)
     {
@@ -21,7 +21,8 @@ static class Program
 
             if (args.Length == 0)
             {
-                new GrammarAnalyzer(parser).Run(SamplesFolder);
+                var grammarAnalyzer = new GrammarAnalyzer(parser);
+                grammarAnalyzer.Run(SamplesFolder);
                 return;
             }
 
@@ -29,7 +30,8 @@ static class Program
             {
                 case "--lsp":
                 case "--stdio":
-                    new LspServer(parser).Run();
+                    var lsp = new LspServer(parser);
+                    lsp.Run();
                     break;
 
                 case "--test":
@@ -37,13 +39,26 @@ static class Program
                     break;
 
                 case "--inspect":
-                    string filePath = args.Length > 1 ? args[1] : args[^1];
-                    new GrammarAnalyzer(parser).InspectFile(filePath);
-                    break;
+                    {
+                        string filePath = args.Length > 1 ? args[1] : args[^1];
+                        var grammarAnalyzer = new GrammarAnalyzer(parser);
+                        grammarAnalyzer.InspectFile(filePath);
+                        break;
+                    }
 
+                case "--tree":
+                    {
+                        string filePath = args.Length > 1 ? args[1] : args[^1];
+                        var grammarAnalyzer = new GrammarAnalyzer(parser);
+                        grammarAnalyzer.DumpTree(filePath);
+                        break;
+                    }
                 default:
-                    new GrammarAnalyzer(parser).InspectFile(args[^1]);
-                    break;
+                    {
+                        var grammarAnalyzer = new GrammarAnalyzer(parser);
+                        grammarAnalyzer.InspectFile(args[^1]);
+                        break;
+                    }
             }
         }
         catch (Exception ex)

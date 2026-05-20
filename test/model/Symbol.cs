@@ -5,36 +5,10 @@
 /// </summary>
 public enum SymbolKind
 {
-    // Модули
-    Program,
-    Unit,
-    Namespace,
-    Library,
-
-    // Типы
-    TypeAlias,      // type TFoo = ...
-    Class,          // type TFoo = class ... end
-    Record,         // type TFoo = record ... end
-    Interface,      // type TFoo = interface ... end
-    Enum,           // type TFoo = (A, B, C)
-    EnumValue,      // A, B, C внутри enum
-    AutoClass,      // type TFoo = auto class(X: T)
-
-    // Процедуры и функции
-    Procedure,
-    Function,
-    Constructor,
-    Destructor,
-    Operator,
-
-    // Переменные и поля
-    Variable,       // var x: T  /  var x := ...
-    Parameter,      // параметр функции
-    Field,          // поле класса/record
-    Constant,       // const C = ...
-    Property,       // property X: T
-
-    // Прочее
+    Program, Unit, Namespace, Library,
+    TypeAlias, Class, Record, Interface, Enum, EnumValue, AutoClass,
+    Procedure, Function, Constructor, Destructor, Operator,
+    Variable, Parameter, Field, Constant, Property,
     Label,
 }
 
@@ -43,32 +17,24 @@ public enum SymbolKind
 /// </summary>
 public class Symbol
 {
-    /// <summary>Имя как написано в исходнике.</summary>
     public string Name { get; }
-
-    /// <summary>Вид символа.</summary>
     public SymbolKind Kind { get; }
-
-    /// <summary>Скоуп, в котором символ объявлен.</summary>
     public Scope DeclaringScope { get; }
-
-    /// <summary>Байтовый диапазон объявления в исходнике.</summary>
     public int StartByte { get; }
     public int EndByte { get; }
 
     /// <summary>
-    /// Тип — строка из исходника (например "integer", "TFoo", "array of integer").
+    /// Тип — строка из исходника (например "integer", "TFoo").
     /// null если тип выводится или не применим.
     /// </summary>
     public string? TypeName { get; set; }
 
     /// <summary>
-    /// Для функций/процедур — вложенный скоуп с параметрами и локальными переменными.
-    /// Для классов — скоуп с полями и методами.
+    /// Для функций/классов — вложенный скоуп с параметрами и локальными переменными.
     /// </summary>
     public Scope? InnerScope { get; set; }
 
-    /// <summary>Сколько раз на этот символ сослались (для анализа неиспользуемых).</summary>
+    /// <summary>Сколько раз на этот символ сослались.</summary>
     public int UseCount { get; set; }
 
     public Symbol(string name, SymbolKind kind, Scope declaringScope, int startByte, int endByte)
@@ -81,33 +47,27 @@ public class Symbol
     }
 
     public override string ToString() =>
-        TypeName != null
-            ? $"{Kind} {Name}: {TypeName}"
-            : $"{Kind} {Name}";
+        TypeName != null ? $"{Kind} {Name}: {TypeName}" : $"{Kind} {Name}";
 }
 
 /// <summary>
 /// Скоуп (область видимости): содержит символы и ссылку на родительский скоуп.
-/// Образует дерево: unit → функция → вложенная функция → ...
 /// </summary>
 public class Scope
 {
     private static int _nextId = 0;
-
-    /// <summary>Уникальный идентификатор для отладки.</summary>
     public int Id { get; } = _nextId++;
-
-    /// <summary>Человекочитаемое имя скоупа (имя функции, "program", etc.).</summary>
     public string Name { get; }
-
-    /// <summary>Родительский скоуп. null только у корневого.</summary>
     public Scope? Parent { get; }
-
-    /// <summary>Дочерние скоупы (тела функций, классы).</summary>
     public List<Scope> Children { get; } = new();
 
-    // Символы этого скоупа — по имени в нижнем регистре (Pascal case-insensitive).
     private readonly Dictionary<string, Symbol> _symbols = new();
+
+    /// <summary>
+    /// Все перегруженные символы — несколько функций/процедур с одним именем.
+    /// Хранятся отдельно от _symbols (там лежит первый).
+    /// </summary>
+    private readonly Dictionary<string, List<Symbol>> _overloads = new();
 
     public Scope(string name, Scope? parent)
     {
@@ -118,32 +78,36 @@ public class Scope
 
     /// <summary>
     /// Добавить символ в этот скоуп.
-    /// Если имя уже занято — возвращает false (дублирование объявления).
+    /// Если имя уже занято — разрешает перегрузку для функций/процедур/конструкторов/операторов.
     /// </summary>
     public bool TryDefine(Symbol symbol, out Symbol? existing)
     {
         string key = symbol.Name.ToLowerInvariant();
+
         if (_symbols.TryGetValue(key, out existing))
+        {
+            if (IsOverloadable(existing.Kind) && IsOverloadable(symbol.Kind))
+            {
+                if (!_overloads.ContainsKey(key))
+                    _overloads[key] = new List<Symbol> { existing };
+                _overloads[key].Add(symbol);
+                existing = null;
+                return true;
+            }
             return false;
+        }
 
         _symbols[key] = symbol;
         existing = null;
         return true;
     }
 
-    /// <summary>
-    /// Поиск символа по имени только в этом скоупе (без подъёма вверх).
-    /// </summary>
     public Symbol? LookupLocal(string name)
     {
         _symbols.TryGetValue(name.ToLowerInvariant(), out var sym);
         return sym;
     }
 
-    /// <summary>
-    /// Поиск символа по имени: сначала в этом скоупе, потом в родительских.
-    /// Возвращает null если не найден нигде.
-    /// </summary>
     public Symbol? Lookup(string name)
     {
         string key = name.ToLowerInvariant();
@@ -158,7 +122,25 @@ public class Scope
     }
 
     /// <summary>Все символы этого скоупа (для итерации).</summary>
-    public IEnumerable<Symbol> Symbols => _symbols.Values;
+    public IEnumerable<Symbol> Symbols
+    {
+        get
+        {
+            foreach (var sym in _symbols.Values)
+                yield return sym;
+            foreach (var list in _overloads.Values)
+                foreach (var sym in list)
+                    if (!_symbols.ContainsValue(sym))
+                        yield return sym;
+        }
+    }
+
+    private static bool IsOverloadable(SymbolKind kind) =>
+        kind is SymbolKind.Function
+            or SymbolKind.Procedure
+            or SymbolKind.Constructor
+            or SymbolKind.Destructor
+            or SymbolKind.Operator;
 
     public override string ToString() => $"Scope#{Id}({Name})";
 }

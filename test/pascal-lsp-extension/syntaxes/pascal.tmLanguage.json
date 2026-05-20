@@ -1,0 +1,175 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Pascal",
+  "scopeName": "source.pascal",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#storage" },
+    { "include": "#keywords" },
+    { "include": "#builtinTypes" },
+    { "include": "#builtinFunctions" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.pascal",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.brace.pascal",
+          "begin": "\\{(?!\\$)",
+          "end": "\\}"
+        },
+        {
+          "name": "comment.block.parenthesis.pascal",
+          "begin": "\\(\\*",
+          "end": "\\*\\)"
+        },
+        {
+          "name": "meta.preprocessor.pascal",
+          "match": "\\{\\$[^}]*\\}"
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.pascal",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pascal",
+              "match": "''"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.pascal",
+          "begin": "\"",
+          "end": "\""
+        },
+        {
+          "name": "constant.character.pascal",
+          "match": "#\\d+"
+        },
+        {
+          "name": "constant.character.hex.pascal",
+          "match": "#\\$[0-9a-fA-F]+"
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.pascal",
+          "match": "\\$[0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.float.pascal",
+          "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.pascal",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+
+    "storage": {
+      "patterns": [
+        {
+          "name": "storage.type.function.pascal",
+          "match": "(?i)\\b(procedure|function|constructor|destructor|operator|property)\\b"
+        },
+        {
+          "name": "storage.type.pascal",
+          "match": "(?i)\\b(class|record|object|interface|type|var|const|label|resourcestring|threadvar|program|unit|library|uses|packed)\\b"
+        },
+        {
+          "name": "storage.modifier.pascal",
+          "match": "(?i)\\b(abstract|virtual|override|overload|reintroduce|dynamic|static|sealed|partial|inline|forward|external|cdecl|stdcall|register|pascal|safecall)\\b"
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.pascal",
+          "match": "(?i)\\b(begin|end|if|then|else|case|of|for|to|downto|do|while|repeat|until|with|goto|break|continue|exit|halt|raise|try|except|finally|on|inherited)\\b"
+        },
+        {
+          "name": "keyword.control.unit.pascal",
+          "match": "(?i)\\b(implementation|interface|initialization|finalization)\\b"
+        },
+        {
+          "name": "keyword.operator.pascal",
+          "match": "(?i)\\b(and|or|not|xor|shl|shr|in|is|as|div|mod)\\b"
+        },
+        {
+          "name": "keyword.other.visibility.pascal",
+          "match": "(?i)\\b(public|private|protected|published|strict)\\b"
+        },
+        {
+          "name": "constant.language.pascal",
+          "match": "(?i)\\b(true|false|nil|maxint|self|result)\\b"
+        },
+        {
+          "name": "keyword.other.pascal",
+          "match": "(?i)\\b(array|set|file|of|new|dispose)\\b"
+        }
+      ]
+    },
+
+    "builtinTypes": {
+      "patterns": [
+        {
+          "name": "support.type.pascal",
+          "match": "(?i)\\b(integer|smallint|shortint|longint|int64|byte|word|cardinal|longword|uint64|boolean|char|widechar|real|single|double|extended|currency|string|ansistring|widestring|shortstring|pointer|variant|text|biginteger)\\b"
+        }
+      ]
+    },
+
+    "builtinFunctions": {
+      "patterns": [
+        {
+          "name": "support.function.pascal",
+          "match": "(?i)\\b(write|writeln|read|readln|print|println|writef|writelnf|assign|reset|rewrite|close|append|eof|eoln|abs|sqr|sqrt|sin|cos|round|trunc|ord|chr|length|copy|delete|insert|pos|concat|inc|dec|high|low|sizeof|random|randomize|setlength|swap|val|str)\\b"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.pascal",
+          "match": ":="
+        },
+        {
+          "name": "keyword.operator.comparison.pascal",
+          "match": "<>|<=|>=|<|>|="
+        },
+        {
+          "name": "keyword.operator.arithmetic.pascal",
+          "match": "[+\\-*/]"
+        },
+        {
+          "name": "keyword.operator.pointer.pascal",
+          "match": "[@\\^]"
+        },
+        {
+          "name": "keyword.operator.range.pascal",
+          "match": "\\.\\."
+        }
+      ]
+    }
+  }
+}

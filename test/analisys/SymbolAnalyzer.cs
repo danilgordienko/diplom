@@ -30,9 +30,6 @@ public class SymbolAnalyzer
         return new AnalysisResult(source, table, index, refCollector.Unresolved);
     }
 
-    /// <summary>
-    /// Найти все объявления символа по имени во всём дереве скоупов.
-    /// </summary>
     public static List<DefinitionResult> FindDefinitionsByName(AnalysisResult result, string name)
     {
         var found = new List<Symbol>();
@@ -46,9 +43,6 @@ public class SymbolAnalyzer
         }).ToList();
     }
 
-    /// <summary>
-    /// Найти объявление символа по байтовой позиции курсора.
-    /// </summary>
     public static DefinitionResult? FindDefinitionAtByte(AnalysisResult result, int bytePos)
     {
         Symbol? sym = result.Index.FindSymbolAtByte(bytePos)
@@ -61,9 +55,6 @@ public class SymbolAnalyzer
         return new DefinitionResult(sym, line, col, preview);
     }
 
-    /// <summary>
-    /// Все вхождения символа по имени.
-    /// </summary>
     public static ReferencesResult FindReferencesByName(AnalysisResult result, string name)
     {
         var found = new List<Symbol>();
@@ -108,8 +99,6 @@ public class AnalysisResult
     public string Source { get; }
     public SymbolTable Table { get; }
     public ReferenceIndex Index { get; }
-
-    /// <summary>Идентификаторы не найденные ни в скоупе, ни среди встроенных.</summary>
     public IReadOnlyList<UnresolvedIdentifier> Unresolved { get; }
 
     public AnalysisResult(string source, SymbolTable table, ReferenceIndex index,
